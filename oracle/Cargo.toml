@@ -1,0 +1,21 @@
+[package]
+name = "xvault-oracle"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "xVault NAV / price oracle program"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "xvault_oracle"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "0.32.1"
