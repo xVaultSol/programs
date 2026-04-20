@@ -66,7 +66,7 @@ pub struct Deposit<'info> {
 }
 
 pub fn handler(ctx: Context<Deposit>, usdc_raw: u64, min_shares_out: u64) -> Result<()> {
-    require!(!ctx.accounts.vault.paused, VaultError::Paused);
+    require!(!ctx.accounts.vault.pause_flags.block_deposits(), VaultError::Paused);
     require!(usdc_raw > 0, VaultError::ZeroAmount);
 
     // Pull USDC from user → vault cash buffer via the stable token program.

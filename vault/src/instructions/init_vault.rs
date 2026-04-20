@@ -85,10 +85,10 @@ pub fn handler(ctx: Context<InitVault>, args: InitVaultArgs) -> Result<()> {
     vault.last_fee_collection_ts = Clock::get()?.unix_timestamp;
     vault.hwm_nav_per_share_1e8 = 0;
     vault.accrued_protocol_fees_raw = 0;
-    vault.paused = false;
+    vault.pause_flags = crate::state::PauseFlags::default();
     vault.bump = ctx.bumps.vault;
     vault.share_mint_bump = ctx.bumps.share_mint;
-    vault._padding = [0; 3];
+    vault._padding = [0; 2];
 
     // Silence unused
     let _ = ctx.accounts.token_program.key();

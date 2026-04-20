@@ -38,7 +38,7 @@ pub fn handler<'info>(
     ctx: Context<'_, '_, 'info, 'info, RebalanceLeg<'info>>,
     args: RebalanceLegArgs,
 ) -> Result<()> {
-    require!(!ctx.accounts.vault.paused, VaultError::Paused);
+    require!(!ctx.accounts.vault.pause_flags.block_rebalance(), VaultError::Paused);
     require!(args.raw_in > 0, VaultError::ZeroAmount);
 
     let vault = &ctx.accounts.vault;

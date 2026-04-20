@@ -71,6 +71,14 @@ pub mod xvault_vault {
         instructions::set_paused::handler(ctx, paused)
     }
 
+    /// Granular pause control — admin overwrites the full `PauseFlags` set.
+    /// Use this for targeted pauses (deposits-only during corp-action windows,
+    /// oracle freeze across multiplier activation, etc.) without tripping the
+    /// full `halted` circuit breaker.
+    pub fn set_pause_flags(ctx: Context<SetPaused>, flags: state::PauseFlags) -> Result<()> {
+        instructions::set_paused::set_pause_flags_handler(ctx, flags)
+    }
+
     /// Initialize the Token-2022 share mint. Called once after `init_vault`.
     pub fn init_share_mint(ctx: Context<InitShareMint>) -> Result<()> {
         instructions::init_share_mint::handler(ctx)

@@ -43,6 +43,10 @@ pub struct CollectMgmtFee<'info> {
 }
 
 pub fn handler(ctx: Context<CollectMgmtFee>) -> Result<()> {
+    require!(
+        !ctx.accounts.vault.pause_flags.block_fee_collection(),
+        VaultError::Paused
+    );
     let now = Clock::get()?.unix_timestamp;
     let vault = &ctx.accounts.vault;
     let elapsed = now

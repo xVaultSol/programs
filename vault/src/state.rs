@@ -25,6 +25,56 @@ impl Holding {
     pub const SIZE: usize = 32 + 2 + 8 + 1 + 5;
 }
 
+/// Granular pause controls.
+///
+/// Replaces the legacy `paused: bool` flag. Each field gates a distinct class of instruction
+/// so that narrow operational events (e.g. a brief multiplier-activation freeze, a single
+/// halted asset) do not force a full deposit/withdraw outage.
+///
+/// Packed layout = 4 bytes, matching the legacy `bool + [u8; 3] padding` slot, so no account
+/// migration is needed for pre-launch deployments.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct PauseFlags {
+    /// Block `deposit` and fee-collection mints. Recommended default for corp-action windows.
+    pub deposits_paused: bool,
+    /// Block `rebalance_leg`. Recommended during halts, multiplier windows, or forced exits.
+    pub rebalance_paused: bool,
+    /// NAV is considered stale / in-transition. Blocks every NAV-sensitive ix (deposit,
+    /// withdraw_usdc, fee collection). `withdraw_in_kind` remains open. Driven by the
+    /// keeper around multiplier activation timestamps.
+    pub oracle_frozen: bool,
+    /// Emergency full-stop. Mirrors legacy `paused == true` semantics: blocks deposits,
+    /// rebalances, and fee collection. `withdraw_in_kind` remains open by design.
+    pub halted: bool,
+}
+
+impl PauseFlags {
+    pub const SIZE: usize = 4;
+
+    /// True if ANY flag would force emergency exit semantics (halt or deposits off).
+    pub fn is_paused(&self) -> bool {
+        self.halted || self.deposits_paused || self.rebalance_paused || self.oracle_frozen
+    }
+
+    pub fn block_deposits(&self) -> bool {
+        self.halted || self.deposits_paused || self.oracle_frozen
+    }
+
+    pub fn block_rebalance(&self) -> bool {
+        self.halted || self.rebalance_paused
+    }
+
+    /// Fee collection mints shares, so it must respect the deposit gate.
+    pub fn block_fee_collection(&self) -> bool {
+        self.block_deposits()
+    }
+
+    /// USDC withdrawals price against the oracle; gate behind the freeze flag.
+    pub fn block_withdraw_usdc(&self) -> bool {
+        self.halted || self.oracle_frozen
+    }
+}
+
 #[account]
 #[derive(Debug)]
 pub struct Vault {
@@ -56,18 +106,18 @@ pub struct Vault {
     pub hwm_nav_per_share_1e8: u128,
     /// Accumulated protocol USDC fees (raw, 6 decimals) from withdrawals.
     pub accrued_protocol_fees_raw: u64,
-    /// When true, deposits + rebalances blocked.
-    pub paused: bool,
+    /// Granular pause controls. 4-byte packed — see [`PauseFlags`].
+    pub pause_flags: PauseFlags,
     /// PDA bump for the Vault account.
     pub bump: u8,
     /// PDA bump for the share mint.
     pub share_mint_bump: u8,
-    pub _padding: [u8; 3],
+    pub _padding: [u8; 2],
 }
 
 impl Vault {
     pub const BASE_SIZE: usize =
-        32 + 32 + 32 + 32 + 32 /* treasury */ + 16 + 4 /* vec len */ + 8 + 2 + 2 + 2 + 8 + 16 + 8 + 1 + 1 + 1 + 3;
+        32 + 32 + 32 + 32 + 32 /* treasury */ + 16 + 4 /* vec len */ + 8 + 2 + 2 + 2 + 8 + 16 + 8 + PauseFlags::SIZE + 1 + 1 + 2;
 
     pub fn size(basket_len: usize) -> usize {
         8 /* disc */ + Self::BASE_SIZE + basket_len * Holding::SIZE

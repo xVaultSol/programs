@@ -47,6 +47,10 @@ pub struct CollectPerfFee<'info> {
 }
 
 pub fn handler(ctx: Context<CollectPerfFee>) -> Result<()> {
+    require!(
+        !ctx.accounts.vault.pause_flags.block_fee_collection(),
+        VaultError::Paused
+    );
     let vault = &ctx.accounts.vault;
     let nav = &ctx.accounts.nav_snapshot;
 

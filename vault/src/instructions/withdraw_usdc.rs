@@ -65,6 +65,10 @@ pub struct WithdrawUsdc<'info> {
 pub fn handler(ctx: Context<WithdrawUsdc>, shares: u64, max_slip_bps: u16) -> Result<()> {
     require!(shares > 0, VaultError::ZeroAmount);
     require!(max_slip_bps <= MAX_WITHDRAW_SLIPPAGE_BPS, VaultError::SlippageExceeded);
+    require!(
+        !ctx.accounts.vault.pause_flags.block_withdraw_usdc(),
+        VaultError::Paused
+    );
 
     let total_shares = ctx.accounts.share_mint.supply;
     require!(total_shares > 0, VaultError::MathOverflow);
