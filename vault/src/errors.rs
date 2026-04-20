@@ -30,4 +30,10 @@ pub enum VaultError {
     InvalidRemainingAccounts,
     #[msg("Math overflow")]
     MathOverflow,
+    #[msg("No management fee accrued yet")]
+    NoFeeAccrued,
+    #[msg("No performance fee — NAV below high-water mark")]
+    BelowHighWaterMark,
+    #[msg("Share mint is already initialized")]
+    ShareMintAlreadyInitialized,
 }

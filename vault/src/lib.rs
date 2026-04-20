@@ -70,4 +70,19 @@ pub mod xvault_vault {
     pub fn set_paused(ctx: Context<SetPaused>, paused: bool) -> Result<()> {
         instructions::set_paused::handler(ctx, paused)
     }
+
+    /// Initialize the Token-2022 share mint. Called once after `init_vault`.
+    pub fn init_share_mint(ctx: Context<InitShareMint>) -> Result<()> {
+        instructions::init_share_mint::handler(ctx)
+    }
+
+    /// Permissionless: collects streaming management fee (mints shares to treasury).
+    pub fn collect_mgmt_fee(ctx: Context<CollectMgmtFee>) -> Result<()> {
+        instructions::collect_mgmt_fee::handler(ctx)
+    }
+
+    /// Permissionless: collects performance fee when NAV/share exceeds HWM.
+    pub fn collect_perf_fee(ctx: Context<CollectPerfFee>) -> Result<()> {
+        instructions::collect_perf_fee::handler(ctx)
+    }
 }

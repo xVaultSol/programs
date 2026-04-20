@@ -11,9 +11,11 @@ pub struct InitVaultArgs {
     pub weights_bps: Vec<u16>,
     pub decimals: Vec<u8>,
     pub management_fee_bps: u16,
+    pub performance_fee_bps: u16,
     pub rebalance_slippage_bps: u16,
     pub keeper: Pubkey,
     pub nav_snapshot: Pubkey,
+    pub treasury: Pubkey,
 }
 
 #[derive(Accounts)]
@@ -61,6 +63,7 @@ pub fn handler(ctx: Context<InitVault>, args: InitVaultArgs) -> Result<()> {
     vault.keeper = args.keeper;
     vault.nav_snapshot = args.nav_snapshot;
     vault.share_mint = ctx.accounts.share_mint.key();
+    vault.treasury = args.treasury;
     vault.sku = args.sku;
     vault.holdings = args
         .mints
@@ -77,11 +80,15 @@ pub fn handler(ctx: Context<InitVault>, args: InitVaultArgs) -> Result<()> {
         .collect();
     vault.cash_raw = 0;
     vault.management_fee_bps = args.management_fee_bps;
+    vault.performance_fee_bps = args.performance_fee_bps;
     vault.rebalance_slippage_bps = args.rebalance_slippage_bps;
+    vault.last_fee_collection_ts = Clock::get()?.unix_timestamp;
+    vault.hwm_nav_per_share_1e8 = 0;
+    vault.accrued_protocol_fees_raw = 0;
     vault.paused = false;
     vault.bump = ctx.bumps.vault;
     vault.share_mint_bump = ctx.bumps.share_mint;
-    vault._padding = [0; 5];
+    vault._padding = [0; 3];
 
     // Silence unused
     let _ = ctx.accounts.token_program.key();

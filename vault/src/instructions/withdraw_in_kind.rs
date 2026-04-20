@@ -75,9 +75,11 @@ pub fn handler<'info>(
         };
 
         let base = i.checked_mul(3).ok_or(VaultError::MathOverflow)?;
+        let idx1 = base.checked_add(1).ok_or(VaultError::MathOverflow)?;
+        let idx2 = base.checked_add(2).ok_or(VaultError::MathOverflow)?;
         let vault_ata = InterfaceAccount::<TokenAccount>::try_from(&ctx.remaining_accounts[base])?;
-        let user_ata = InterfaceAccount::<TokenAccount>::try_from(&ctx.remaining_accounts[base + 1])?;
-        let mint_acc = InterfaceAccount::<Mint>::try_from(&ctx.remaining_accounts[base + 2])?;
+        let user_ata = InterfaceAccount::<TokenAccount>::try_from(&ctx.remaining_accounts[idx1])?;
+        let mint_acc = InterfaceAccount::<Mint>::try_from(&ctx.remaining_accounts[idx2])?;
 
         require_keys_eq!(mint_acc.key(), holding_mint, VaultError::InvalidRemainingAccounts);
         require_keys_eq!(vault_ata.mint, holding_mint, VaultError::InvalidRemainingAccounts);
@@ -95,8 +97,8 @@ pub fn handler<'info>(
                 token_program.clone(),
                 TransferChecked {
                     from: ctx.remaining_accounts[base].clone(),
-                    mint: ctx.remaining_accounts[base + 2].clone(),
-                    to: ctx.remaining_accounts[base + 1].clone(),
+                    mint: ctx.remaining_accounts[idx2].clone(),
+                    to: ctx.remaining_accounts[idx1].clone(),
                     authority: vault_info.clone(),
                 },
                 &signer,

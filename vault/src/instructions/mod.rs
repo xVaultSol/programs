@@ -1,4 +1,7 @@
+pub mod collect_mgmt_fee;
+pub mod collect_perf_fee;
 pub mod deposit;
+pub mod init_share_mint;
 pub mod init_vault;
 pub mod rebalance_leg;
 pub mod set_paused;
@@ -6,7 +9,10 @@ pub mod update_weights;
 pub mod withdraw_in_kind;
 pub mod withdraw_usdc;
 
+pub use collect_mgmt_fee::*;
+pub use collect_perf_fee::*;
 pub use deposit::*;
+pub use init_share_mint::*;
 pub use init_vault::*;
 pub use rebalance_leg::*;
 pub use set_paused::*;

@@ -5,12 +5,11 @@ use anchor_spl::token_interface::{
 use xvault_oracle::NavSnapshot;
 
 use crate::errors::VaultError;
-use crate::state::Vault;
+use crate::state::{Vault, WITHDRAW_FEE_BPS, BPS_DENOM};
 
 const MULTIPLIER_DENOM_1E18: u128 = 1_000_000_000_000_000_000u128;
 const PRICE_SCALE_1E8: u128 = 100_000_000u128;
 const USDC_DECIMALS: u32 = 6;
-const BPS_DENOM: u128 = 10_000;
 const MAX_WITHDRAW_SLIPPAGE_BPS: u16 = 500;
 
 #[derive(Accounts)]
@@ -122,7 +121,21 @@ pub fn handler(ctx: Context<WithdrawUsdc>, shares: u64, max_slip_bps: u16) -> Re
         .ok_or(VaultError::MathOverflow)?;
     require!(available_usdc_raw >= min_out, VaultError::SlippageExceeded);
 
-    let out_u64 = u64::try_from(available_usdc_raw).map_err(|_| VaultError::MathOverflow)?;
+    // Deduct 0.05% protocol withdrawal fee.
+    let fee_raw = available_usdc_raw
+        .checked_mul(WITHDRAW_FEE_BPS)
+        .ok_or(VaultError::MathOverflow)?
+        .checked_div(BPS_DENOM)
+        .ok_or(VaultError::MathOverflow)?;
+    let user_out = available_usdc_raw
+        .checked_sub(fee_raw)
+        .ok_or(VaultError::MathOverflow)?;
+    let user_out_u64 = u64::try_from(user_out).map_err(|_| VaultError::MathOverflow)?;
+    let fee_u64 = u64::try_from(fee_raw).map_err(|_| VaultError::MathOverflow)?;
+    let total_deducted = user_out_u64
+        .checked_add(fee_u64)
+        .ok_or(VaultError::MathOverflow)?;
+
     let sku_seed = &ctx.accounts.vault.sku[..];
     let bump_seed = [ctx.accounts.vault.bump];
     let signer_seeds: &[&[u8]] = &[b"vault", sku_seed, &bump_seed];
@@ -137,18 +150,23 @@ pub fn handler(ctx: Context<WithdrawUsdc>, shares: u64, max_slip_bps: u16) -> Re
         },
         &signer,
     );
-    transfer_checked(transfer_ctx, out_u64, ctx.accounts.usdc_mint.decimals)?;
+    transfer_checked(transfer_ctx, user_out_u64, ctx.accounts.usdc_mint.decimals)?;
 
     let vault = &mut ctx.accounts.vault;
+    vault.accrued_protocol_fees_raw = vault
+        .accrued_protocol_fees_raw
+        .checked_add(fee_u64)
+        .ok_or(VaultError::MathOverflow)?;
     vault.cash_raw = vault
         .cash_raw
-        .checked_sub(out_u64)
+        .checked_sub(total_deducted)
         .ok_or(VaultError::MathOverflow)?;
 
     emit!(WithdrawUsdcEvent {
         user: ctx.accounts.user.key(),
         shares_burned: shares,
-        usdc_raw_out: out_u64,
+        usdc_raw_out: user_out_u64,
+        fee_raw: fee_u64,
         max_slip_bps,
     });
 
@@ -160,6 +178,7 @@ pub struct WithdrawUsdcEvent {
     pub user: Pubkey,
     pub shares_burned: u64,
     pub usdc_raw_out: u64,
+    pub fee_raw: u64,
     pub max_slip_bps: u16,
 }
 

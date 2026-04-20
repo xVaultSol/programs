@@ -2,6 +2,9 @@ use anchor_lang::prelude::*;
 
 pub const MAX_ASSETS: usize = 20;
 pub const BPS_DENOMINATOR: u16 = 10_000;
+pub const SECS_PER_YEAR: u128 = 365 * 24 * 3600;
+pub const WITHDRAW_FEE_BPS: u128 = 5; // 0.05%
+pub const BPS_DENOM: u128 = 10_000;
 
 /// Per-asset holding descriptor embedded in the `Vault` account.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,6 +36,8 @@ pub struct Vault {
     pub nav_snapshot: Pubkey,
     /// LP share mint (Token-2022).
     pub share_mint: Pubkey,
+    /// Treasury ATA that receives fee shares.
+    pub treasury: Pubkey,
     /// Human-readable SKU (e.g. "MAG7_V1"); first 16 bytes used as PDA seed.
     pub sku: [u8; 16],
     /// Whitelisted basket.
@@ -41,20 +46,28 @@ pub struct Vault {
     pub cash_raw: u64,
     /// Management fee, bps per year. Accrued offline; collected via separate ix.
     pub management_fee_bps: u16,
+    /// Performance fee, bps of positive NAV delta (default 1000 = 10%).
+    pub performance_fee_bps: u16,
     /// Max per-leg NAV drift allowed during a rebalance, bps.
     pub rebalance_slippage_bps: u16,
+    /// Last unix timestamp when management fee was collected.
+    pub last_fee_collection_ts: i64,
+    /// High-water mark NAV per share in 1e8 for performance fee.
+    pub hwm_nav_per_share_1e8: u128,
+    /// Accumulated protocol USDC fees (raw, 6 decimals) from withdrawals.
+    pub accrued_protocol_fees_raw: u64,
     /// When true, deposits + rebalances blocked.
     pub paused: bool,
     /// PDA bump for the Vault account.
     pub bump: u8,
     /// PDA bump for the share mint.
     pub share_mint_bump: u8,
-    pub _padding: [u8; 5],
+    pub _padding: [u8; 3],
 }
 
 impl Vault {
     pub const BASE_SIZE: usize =
-        32 + 32 + 32 + 32 + 16 + 4 /* vec len */ + 8 + 2 + 2 + 1 + 1 + 1 + 5;
+        32 + 32 + 32 + 32 + 32 /* treasury */ + 16 + 4 /* vec len */ + 8 + 2 + 2 + 2 + 8 + 16 + 8 + 1 + 1 + 1 + 3;
 
     pub fn size(basket_len: usize) -> usize {
         8 /* disc */ + Self::BASE_SIZE + basket_len * Holding::SIZE
