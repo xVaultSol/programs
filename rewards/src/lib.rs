@@ -186,7 +186,7 @@ pub struct InitPool<'info> {
     #[account(
         init,
         payer = admin,
-        space = 8 + 32 + 32 + 8 + 8 + 8 + 1,
+        space = 8 + 32 + 32 + 8 + 8 + 32 + 8 + 1,
         seeds = [b"pool"],
         bump,
     )]

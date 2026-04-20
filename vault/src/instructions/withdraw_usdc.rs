@@ -26,7 +26,7 @@ pub struct WithdrawUsdc<'info> {
     pub vault: Account<'info, Vault>,
 
     #[account(mut, address = vault.share_mint)]
-    pub share_mint: InterfaceAccount<'info, Mint>,
+    pub share_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
         mut,
@@ -34,10 +34,10 @@ pub struct WithdrawUsdc<'info> {
         token::authority = user,
         token::token_program = token_program,
     )]
-    pub user_share_ata: InterfaceAccount<'info, TokenAccount>,
+    pub user_share_ata: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(address = vault.nav_snapshot)]
-    pub nav_snapshot: Account<'info, NavSnapshot>,
+    pub nav_snapshot: Box<Account<'info, NavSnapshot>>,
 
     pub usdc_mint: InterfaceAccount<'info, Mint>,
 
@@ -47,7 +47,7 @@ pub struct WithdrawUsdc<'info> {
         token::authority = vault,
         token::token_program = token_program,
     )]
-    pub vault_usdc_ata: InterfaceAccount<'info, TokenAccount>,
+    pub vault_usdc_ata: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,

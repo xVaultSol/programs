@@ -39,16 +39,16 @@ pub struct Deposit<'info> {
         token::mint = asset_mint,
         token::token_program = token_program,
     )]
-    pub vault_holding_ata: InterfaceAccount<'info, TokenAccount>,
+    pub vault_holding_ata: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(address = vault.nav_snapshot)]
-    pub nav_snapshot: Account<'info, NavSnapshot>,
+    pub nav_snapshot: Box<Account<'info, NavSnapshot>>,
 
     #[account(
         mut,
         address = vault.share_mint,
     )]
-    pub share_mint: InterfaceAccount<'info, Mint>,
+    pub share_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
         mut,
@@ -56,7 +56,7 @@ pub struct Deposit<'info> {
         token::authority = user,
         token::token_program = token_program,
     )]
-    pub user_share_ata: InterfaceAccount<'info, TokenAccount>,
+    pub user_share_ata: Box<InterfaceAccount<'info, TokenAccount>>,
 
     pub token_program: Interface<'info, TokenInterface>,
 }
