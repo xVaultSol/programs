@@ -8,6 +8,8 @@ use crate::errors::VaultError;
 use crate::state::Vault;
 
 const MULTIPLIER_DENOM_1E18: u128 = 1_000_000_000_000_000_000u128;
+const PRICE_SCALE_1E8: u128 = 100_000_000u128;
+const USDC_DECIMALS: u32 = 6;
 
 #[derive(Accounts)]
 pub struct Deposit<'info> {
@@ -21,25 +23,24 @@ pub struct Deposit<'info> {
     )]
     pub vault: Account<'info, Vault>,
 
-    /// xStock Token-2022 mint the user is depositing. Must be whitelisted.
-    pub asset_mint: InterfaceAccount<'info, Mint>,
+    /// USDC mint (standard: EPjFWdd5auEH7vH2pv6HYzpg8aGDkxwTLjZKLRPH9ss)
+    pub usdc_mint: InterfaceAccount<'info, Mint>,
 
     #[account(
         mut,
-        token::mint = asset_mint,
+        token::mint = usdc_mint,
         token::authority = user,
-        token::token_program = token_program,
+        token::token_program = stable_token_program,
     )]
-    pub user_ata: InterfaceAccount<'info, TokenAccount>,
+    pub user_usdc_ata: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         mut,
-        seeds = [b"holding", &vault.sku[..], asset_mint.key().as_ref()],
-        bump,
-        token::mint = asset_mint,
-        token::token_program = token_program,
+        token::mint = usdc_mint,
+        token::authority = vault,
+        token::token_program = stable_token_program,
     )]
-    pub vault_holding_ata: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub vault_usdc_ata: InterfaceAccount<'info, TokenAccount>,
 
     #[account(address = vault.nav_snapshot)]
     pub nav_snapshot: Box<Account<'info, NavSnapshot>>,
@@ -54,37 +55,31 @@ pub struct Deposit<'info> {
         mut,
         token::mint = share_mint,
         token::authority = user,
-        token::token_program = token_program,
+        token::token_program = share_token_program,
     )]
     pub user_share_ata: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    pub token_program: Interface<'info, TokenInterface>,
+    /// Token program that owns the USDC/stablecoin mint (classic SPL on mainnet).
+    pub stable_token_program: Interface<'info, TokenInterface>,
+    /// Token program that owns the share mint (Token-2022).
+    pub share_token_program: Interface<'info, TokenInterface>,
 }
 
-pub fn handler(ctx: Context<Deposit>, raw_amount: u64, min_shares_out: u64) -> Result<()> {
+pub fn handler(ctx: Context<Deposit>, usdc_raw: u64, min_shares_out: u64) -> Result<()> {
     require!(!ctx.accounts.vault.paused, VaultError::Paused);
-    require!(raw_amount > 0, VaultError::ZeroAmount);
+    require!(usdc_raw > 0, VaultError::ZeroAmount);
 
-    let mint_key = ctx.accounts.asset_mint.key();
-    let holding = ctx
-        .accounts
-        .vault
-        .holding(&mint_key)
-        .ok_or(VaultError::AssetNotWhitelisted)?;
-    let decimals = holding.decimals;
-
-    // Pull raw tokens from user → vault holding ATA (Token-2022 `transfer_checked`
-    // validates decimals, avoiding silent scaled-amount mistakes).
+    // Pull USDC from user → vault cash buffer via the stable token program.
     let cpi_ctx = CpiContext::new(
-        ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.stable_token_program.to_account_info(),
         TransferChecked {
-            from: ctx.accounts.user_ata.to_account_info(),
-            mint: ctx.accounts.asset_mint.to_account_info(),
-            to: ctx.accounts.vault_holding_ata.to_account_info(),
+            from: ctx.accounts.user_usdc_ata.to_account_info(),
+            mint: ctx.accounts.usdc_mint.to_account_info(),
+            to: ctx.accounts.vault_usdc_ata.to_account_info(),
             authority: ctx.accounts.user.to_account_info(),
         },
     );
-    transfer_checked(cpi_ctx, raw_amount, decimals)?;
+    transfer_checked(cpi_ctx, usdc_raw, ctx.accounts.usdc_mint.decimals)?;
 
     let now_slot = Clock::get()?.slot;
     let nav = &ctx.accounts.nav_snapshot;
@@ -92,20 +87,6 @@ pub fn handler(ctx: Context<Deposit>, raw_amount: u64, min_shares_out: u64) -> R
         now_slot.saturating_sub(nav.last_update_slot) <= nav.max_stale_slots,
         VaultError::OracleStale
     );
-
-    let nav_entry = nav
-        .entries
-        .iter()
-        .find(|e| e.mint == mint_key)
-        .ok_or(VaultError::OracleStale)?;
-
-    // Deposit leg USD value in fixed-point 1e8.
-    let deposit_usd_1e8 = usd_value_1e8(
-        raw_amount,
-        nav_entry.multiplier_num,
-        nav_entry.price_usd_1e8,
-        decimals,
-    )?;
 
     // Compute total NAV in 1e8 from snapshot entries and vault raw balances.
     let mut total_nav_1e8: u128 = 0;
@@ -118,28 +99,50 @@ pub fn handler(ctx: Context<Deposit>, raw_amount: u64, min_shares_out: u64) -> R
         }
     }
 
+    // Include existing cash buffer in NAV.
+    let cash_usd_1e8 = (ctx.accounts.vault.cash_raw as u128)
+        .checked_mul(PRICE_SCALE_1E8)
+        .ok_or(VaultError::MathOverflow)?
+        .checked_div(10u128.pow(USDC_DECIMALS))
+        .ok_or(VaultError::MathOverflow)?;
+    total_nav_1e8 = total_nav_1e8
+        .checked_add(cash_usd_1e8)
+        .ok_or(VaultError::MathOverflow)?;
+
+    // Convert USDC deposit to USD value (1e8).
+    let deposit_usd_1e8 = (usdc_raw as u128)
+        .checked_mul(PRICE_SCALE_1E8)
+        .ok_or(VaultError::MathOverflow)?
+        .checked_div(10u128.pow(USDC_DECIMALS))
+        .ok_or(VaultError::MathOverflow)?;
+
     let share_supply = ctx.accounts.share_mint.supply as u128;
     let shares_out_u128 = shares_out_from_nav(deposit_usd_1e8, share_supply, total_nav_1e8)?;
     let shares_out = u64::try_from(shares_out_u128).map_err(|_| VaultError::MathOverflow)?;
     require!(shares_out >= min_shares_out, VaultError::SlippageExceeded);
 
-    // Update raw balance.
-    let vault = &mut ctx.accounts.vault;
-    let holding_mut = vault
-        .holding_mut(&mint_key)
-        .ok_or(VaultError::AssetNotWhitelisted)?;
-    holding_mut.raw_balance = holding_mut
-        .raw_balance
-        .checked_add(raw_amount)
-        .ok_or(VaultError::MathOverflow)?;
+    // Capture vault state before mutation (borrow checker).
+    let sku_seed_copy = ctx.accounts.vault.sku.clone();
+    let bump_seed_copy = ctx.accounts.vault.bump;
+
+    {
+        let vault = &mut ctx.accounts.vault;
+        vault.cash_raw = vault
+            .cash_raw
+            .checked_add(usdc_raw)
+            .ok_or(VaultError::MathOverflow)?;
+    } // Release the mutable borrow
+
+    let cash_buffer_after = ctx.accounts.vault.cash_raw;
 
     // Mint shares using NAV-based output.
-    let sku_seed = &ctx.accounts.vault.sku[..];
-    let bump_seed = [ctx.accounts.vault.bump];
+    let sku_seed = &sku_seed_copy[..];
+    let bump_seed = [bump_seed_copy];
     let signer_seeds: &[&[u8]] = &[b"vault", sku_seed, &bump_seed];
     let signer = [signer_seeds];
+    
     let mint_ctx = CpiContext::new_with_signer(
-        ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.share_token_program.to_account_info(),
         MintTo {
             mint: ctx.accounts.share_mint.to_account_info(),
             to: ctx.accounts.user_share_ata.to_account_info(),
@@ -151,9 +154,9 @@ pub fn handler(ctx: Context<Deposit>, raw_amount: u64, min_shares_out: u64) -> R
 
     emit!(DepositEvent {
         user: ctx.accounts.user.key(),
-        asset: mint_key,
-        raw_amount,
+        usdc_raw,
         shares_minted: shares_out,
+        cash_buffer_after,
     });
 
     Ok(())
@@ -162,9 +165,9 @@ pub fn handler(ctx: Context<Deposit>, raw_amount: u64, min_shares_out: u64) -> R
 #[event]
 pub struct DepositEvent {
     pub user: Pubkey,
-    pub asset: Pubkey,
-    pub raw_amount: u64,
+    pub usdc_raw: u64,
     pub shares_minted: u64,
+    pub cash_buffer_after: u64,
 }
 
 fn usd_value_1e8(raw_amount: u64, multiplier_num: u128, price_usd_1e8: u64, decimals: u8) -> Result<u128> {

@@ -31,7 +31,7 @@ pub struct WithdrawUsdc<'info> {
         mut,
         token::mint = share_mint,
         token::authority = user,
-        token::token_program = token_program,
+        token::token_program = share_token_program,
     )]
     pub user_share_ata: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -44,7 +44,7 @@ pub struct WithdrawUsdc<'info> {
         mut,
         token::mint = usdc_mint,
         token::authority = vault,
-        token::token_program = token_program,
+        token::token_program = stable_token_program,
     )]
     pub vault_usdc_ata: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -52,11 +52,14 @@ pub struct WithdrawUsdc<'info> {
         mut,
         token::mint = usdc_mint,
         token::authority = user,
-        token::token_program = token_program,
+        token::token_program = stable_token_program,
     )]
     pub user_usdc_ata: InterfaceAccount<'info, TokenAccount>,
 
-    pub token_program: Interface<'info, TokenInterface>,
+    /// Token program that owns the USDC/stablecoin mint (classic SPL on mainnet).
+    pub stable_token_program: Interface<'info, TokenInterface>,
+    /// Token program that owns the share mint (Token-2022).
+    pub share_token_program: Interface<'info, TokenInterface>,
 }
 
 pub fn handler(ctx: Context<WithdrawUsdc>, shares: u64, max_slip_bps: u16) -> Result<()> {
@@ -67,7 +70,7 @@ pub fn handler(ctx: Context<WithdrawUsdc>, shares: u64, max_slip_bps: u16) -> Re
     require!(total_shares > 0, VaultError::MathOverflow);
 
     let burn_ctx = CpiContext::new(
-        ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.share_token_program.to_account_info(),
         Burn {
             mint: ctx.accounts.share_mint.to_account_info(),
             from: ctx.accounts.user_share_ata.to_account_info(),
@@ -141,7 +144,7 @@ pub fn handler(ctx: Context<WithdrawUsdc>, shares: u64, max_slip_bps: u16) -> Re
     let signer_seeds: &[&[u8]] = &[b"vault", sku_seed, &bump_seed];
     let signer = [signer_seeds];
     let transfer_ctx = CpiContext::new_with_signer(
-        ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.stable_token_program.to_account_info(),
         TransferChecked {
             from: ctx.accounts.vault_usdc_ata.to_account_info(),
             mint: ctx.accounts.usdc_mint.to_account_info(),
