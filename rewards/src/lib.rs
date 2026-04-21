@@ -160,8 +160,7 @@ pub mod xvault_rewards {
         Ok(())
     }
 
-    pub fn claim(ctx: Context<Claim>, amount: u64, proof: Vec<[u8; 32]>) -> Result<()> {
-        require!(amount > 0, RewardsError::ZeroAmount);
+    pub fn claim(ctx: Context<Claim>, amount: u64, proof: Vec<[u8; 32]>) -> Result<()> {        require!(amount > 0, RewardsError::ZeroAmount);
         let epoch = ctx.accounts.pool.current_epoch;
         require!(
             ctx.accounts.stake_account.last_claim_epoch < epoch,
@@ -221,6 +220,13 @@ pub mod xvault_rewards {
             amount,
         });
 
+        Ok(())
+    }
+
+    /// Reclaims rent from a fully-unstaked account. Requires `amount == 0` and
+    /// `locked_until` to have elapsed (so callers cannot short-circuit an active lock).
+    pub fn close_stake_account(_ctx: Context<CloseStakeAccount>) -> Result<()> {
+        // Close constraint on the account is enforced by Anchor.
         Ok(())
     }
 }
@@ -491,6 +497,25 @@ pub struct Claim<'info> {
     pub token_program: Interface<'info, TokenInterface>,
 
     pub system_program: Program<'info, System>,
+}
+
+/// Close a fully-unstaked account to reclaim rent.
+/// Guards: amount must be zero, lock period must be elapsed.
+#[derive(Accounts)]
+pub struct CloseStakeAccount<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    #[account(
+        mut,
+        close = owner,
+        seeds = [b"stake", owner.key().as_ref()],
+        bump,
+        constraint = stake_account.owner == owner.key() @ RewardsError::Unauthorized,
+        constraint = stake_account.amount == 0 @ RewardsError::StillLocked,
+        constraint = Clock::get()?.unix_timestamp >= stake_account.locked_until @ RewardsError::StillLocked,
+    )]
+    pub stake_account: Account<'info, StakeAccount>,
 }
 
 /* -------------------------------------------------------------------------- */

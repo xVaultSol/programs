@@ -15,6 +15,9 @@ pub struct RebalanceLegArgs {
     pub raw_in: u64,
     /// Min raw-out expected after swap (slippage guard).
     pub min_raw_out: u64,
+    /// Slippage tolerance this leg was signed against, in bps.
+    /// Must be `<= vault.rebalance_slippage_bps` — the admin-configured ceiling.
+    pub slippage_bps: u16,
 }
 
 #[derive(Accounts)]
@@ -40,6 +43,10 @@ pub fn handler<'info>(
 ) -> Result<()> {
     require!(!ctx.accounts.vault.pause_flags.block_rebalance(), VaultError::Paused);
     require!(args.raw_in > 0, VaultError::ZeroAmount);
+    require!(
+        args.slippage_bps <= ctx.accounts.vault.rebalance_slippage_bps,
+        VaultError::SlippageExceeded
+    );
 
     let vault = &ctx.accounts.vault;
     require!(
